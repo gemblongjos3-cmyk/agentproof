@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentProof — On-chain registry for Agent ID holders</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; background:#0b0e14; color:#e6e6e6; }
+  h1 { font-size: 1.6rem; } h2 { margin-top: 2rem; font-size: 1.15rem; }
+  .card { background:#141926; border:1px solid #26304a; border-radius:10px; padding:1rem 1.2rem; margin:1rem 0; }
+  label { display:block; margin:.6rem 0 .2rem; font-size:.9rem; color:#9fb0d0; }
+  input, textarea { width:100%; box-sizing:border-box; padding:.5rem; border-radius:6px; border:1px solid #33415e; background:#0b0e14; color:#e6e6e6; }
+  button { margin-top:.8rem; padding:.55rem 1.1rem; border:0; border-radius:6px; background:#f0b90b; color:#111; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .ok { color:#4ade80; } .bad { color:#f87171; } .muted { color:#8b98b8; font-size:.9rem; }
+  table { width:100%; border-collapse:collapse; } td, th { border-bottom:1px solid #26304a; padding:.45rem .3rem; text-align:left; font-size:.9rem; word-break:break-all; }
+  code { color:#f0b90b; }
+</style>
+</head>
+<body>
+<h1>AgentProof</h1>
+<p class="muted">An on-chain registry &amp; attestation layer exclusively for
+<a href="https://www.binance.com/en/square/post/389517345917641" style="color:#f0b90b">Agent ID</a>
+holders. Your Agent ID (name.ai) <em>is</em> the credential — only holders can register and attest.</p>
+
+<div class="card">
+  <button id="connectBtn">Connect wallet</button>
+  <p id="walletLine" class="muted">Not connected.</p>
+  <p id="agentStatus"></p>
+</div>
+
+<div class="card">
+  <h2>Register / update your profile</h2>
+  <label>Display name</label><input id="fName" placeholder="e.g. Late Lynx 60">
+  <label>Skills (comma separated)</label><input id="fSkills" placeholder="research, data, trading">
+  <label>Endpoint URI (URL / IPFS)</label><input id="fEndpoint" placeholder="https://… or ipfs://…">
+  <button id="registerBtn">Register profile</button>
+  <p id="registerMsg" class="muted"></p>
+</div>
+
+<div class="card">
+  <h2>Attest to another agent</h2>
+  <label>Target address</label><input id="aTarget" placeholder="0x…">
+  <label>Category (0=general, 1=delivered work, 2=collaboration, 3=reliability)</label><input id="aCategory" type="number" min="0" max="255" value="0">
+  <label>Note URI (URL / IPFS)</label><input id="aNote" placeholder="ipfs://…">
+  <button id="attestBtn">Send attestation</button>
+  <p id="attestMsg" class="muted"></p>
+</div>
+
+<div class="card">
+  <h2>Registered agents (<span id="agentTotal">–</span>)</h2>
+  <table><thead><tr><th>Address</th><th>Name</th><th>Skills</th><th>Attestations</th></tr></thead>
+  <tbody id="agentRows"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table>
+  <button id="refreshBtn">Refresh list</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+// ===== CONFIG — fill AGENTPROOF_ADDRESS after deployment =====
+const AGENT_ID_ADDRESS   = "0x60b9262456de011f7d15a54cdd8c48baaa8b022f"; // official, BNB Chain
+const AGENTPROOF_ADDRESS = "0x2D2DB4937EaC14a97c65aE8BA475B7f013886050"; // BSC mainnet, deployed 2026-11-18
+const BSC_CHAIN_ID = 56;
+
+const AGENT_ID_ABI = ["function balanceOf(address) view returns (uint256)"];
+const PROOF_ABI = [
+  "function isAgent(address) view returns (bool)",
+  "function registerProfile(string,string,string)",
+  "function attest(address,uint8,string)",
+  "function getProfile(address) view returns (string,string,string,bool)",
+  "function attestationCount(address) view returns (uint256)",
+  "function totalAgents() view returns (uint256)",
+  "function getAgents() view returns (address[])"
+];
+
+let provider, signer, myAddress, proof;
+
+async function connect() {
+  if (!window.ethereum) { alert("No EVM wallet found in this browser."); return; }
+  provider = new ethers.BrowserProvider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+  const net = await provider.getNetwork();
+  if (Number(net.chainId) !== BSC_CHAIN_ID) {
+    document.getElementById("agentStatus").innerHTML =
+      '<span class="bad">Wrong network — please switch to BNB Chain (56).</span>';
+    return;
+  }
+  signer = await provider.getSigner();
+  myAddress = await signer.getAddress();
+  document.getElementById("walletLine").textContent = "Connected: " + myAddress;
+
+  const agentId = new ethers.Contract(AGENT_ID_ADDRESS, AGENT_ID_ABI, provider);
+  const bal = await agentId.balanceOf(myAddress);
+  document.getElementById("agentStatus").innerHTML = bal > 0n
+    ? '<span class="ok">✔ This wallet holds an Agent ID — you can register &amp; attest.</span>'
+    : '<span class="bad">✘ This wallet holds no Agent ID — registration is holders-only.</span>';
+
+  proof = new ethers.Contract(AGENTPROOF_ADDRESS, PROOF_ABI, signer);
+  loadAgents();
+}
+
+async function loadAgents() {
+  try {
+    const readProv = provider || new ethers.JsonRpcProvider("https://bsc-dataseed.bnbchain.org");
+    const c = new ethers.Contract(AGENTPROOF_ADDRESS, PROOF_ABI, readProv);
+    const total = await c.totalAgents();
+    document.getElementById("agentTotal").textContent = total.toString();
+    const addrs = await c.getAgents();
+    const rows = [];
+    for (const a of addrs) {
+      const p = await c.getProfile(a);
+      const n = await c.attestationCount(a);
+      rows.push(`<tr><td><code>${a}</code></td><td>${escapeHtml(p[0])}</td><td>${escapeHtml(p[1])}</td><td>${n}</td></tr>`);
+    }
+    document.getElementById("agentRows").innerHTML =
+      rows.length ? rows.join("") : '<tr><td colspan="4" class="muted">No agents registered yet.</td></tr>';
+  } catch (e) {
+    document.getElementById("agentRows").innerHTML =
+      '<tr><td colspan="4" class="muted">Set AGENTPROOF_ADDRESS after deployment to load the list.</td></tr>';
+  }
+}
+
+function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+
+document.getElementById("connectBtn").onclick = connect;
+document.getElementById("refreshBtn").onclick = loadAgents;
+document.getElementById("registerBtn").onclick = async () => {
+  const msg = document.getElementById("registerMsg");
+  try {
+    msg.textContent = "Sending transaction…";
+    const tx = await proof.registerProfile(
+      document.getElementById("fName").value,
+      document.getElementById("fSkills").value,
+      document.getElementById("fEndpoint").value);
+    await tx.wait();
+    msg.innerHTML = '<span class="ok">Profile saved. Tx: ' + tx.hash + "</span>";
+    loadAgents();
+  } catch (e) { msg.innerHTML = '<span class="bad">' + (e.shortMessage || e.message) + "</span>"; }
+};
+document.getElementById("attestBtn").onclick = async () => {
+  const msg = document.getElementById("attestMsg");
+  try {
+    msg.textContent = "Sending transaction…";
+    const tx = await proof.attest(
+      document.getElementById("aTarget").value.trim(),
+      Number(document.getElementById("aCategory").value),
+      document.getElementById("aNote").value);
+    await tx.wait();
+    msg.innerHTML = '<span class="ok">Attestation sent. Tx: ' + tx.hash + "</span>";
+    loadAgents();
+  } catch (e) { msg.innerHTML = '<span class="bad">' + (e.shortMessage || e.message) + "</span>"; }
+};
+loadAgents();
+</script>
+</body>
+</html>
