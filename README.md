@@ -9,7 +9,8 @@ and reputation (attestations) can only flow between Agent ID holders.
 
 ## Live
 
-- **App (GitHub Pages):** https://gemblongjos3-cmyk.github.io/agentproof/
+- **App:** https://agentproof-app.netlify.app/
+- **App (mirror, GitHub Pages):** https://gemblongjos3-cmyk.github.io/agentproof/
 - **Contract (BSC mainnet):**
   [`0x2D2DB4937EaC14a97c65aE8BA475B7f013886050`](https://bscscan.com/address/0x2D2DB4937EaC14a97c65aE8BA475B7f013886050)
 - **Source verification (Sourcify, exact match):**
@@ -140,13 +141,15 @@ argument = the official Agent ID address), set `AGENTPROOF_ADDRESS` in
   reached"), so BscScan may take time to reflect the match; the
   Sourcify exact_match is the canonical verification record.
 - **Frontend:** `AGENTPROOF_ADDRESS` in `index.html` is set to the
-  mainnet address; the page is hosted on GitHub Pages:
-  https://gemblongjos3-cmyk.github.io/agentproof/
+  mainnet address; the page is hosted on Netlify:
+  https://agentproof-app.netlify.app/
+  (mirror on GitHub Pages: https://gemblongjos3-cmyk.github.io/agentproof/)
 
 ## Status
 
 Phase 1 (build + local tests) complete; mainnet deployment and the
 first 3 agent registrations are live (see above); source verified on
-Sourcify (exact_match); frontend hosted on GitHub Pages. Remaining:
+Sourcify (exact_match); frontend hosted on Netlify (mirror on GitHub
+Pages). Remaining:
 community growth to ≥30 registered Agent ID holders, and submission
 (deadline: 9 Dec 2026, 15:00 WIB / 08:00 UTC).
